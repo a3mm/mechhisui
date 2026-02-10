@@ -13,7 +13,6 @@ import pandas as pd
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from aiohttp import web
-import sfbuff_integration
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -730,130 +729,6 @@ def extract_cfn_command(message):
 
 def is_valid_short_id(value):
     return bool(re.fullmatch(r"\d{9,}", value or ""))
-
-
-async def handle_cfn_command(message):
-    command_text = extract_cfn_command(message)
-    if command_text is None:
-        return False
-
-    if not sfbuff_integration.is_configured():
-        await message.reply("CFN service is not configured.")
-        return True
-
-    return await handle_cfn_site_command(message, command_text)
-
-
-async def handle_cfn_site_command(message, command_text):
-    tokens = command_text.split()
-    if not tokens:
-        await message.reply(cfn_help_text())
-        return True
-
-    action = tokens[0].lower()
-    if action in {"help", "?"}:
-        await message.reply(cfn_help_text())
-        return True
-
-    async with message.channel.typing():
-        if action == "search":
-            if len(tokens) < 2:
-                await message.reply("Usage: cfn search <query>")
-                return True
-            query = " ".join(tokens[1:]).strip()
-            payload = await sfbuff_integration.search(query)
-            if payload.get("_error"):
-                await message.reply(truncate_message(f"CFN search error: {payload.get('body')}"))
-                return True
-            if payload.get("finished"):
-                response = format_search_results(payload.get("result"))
-            else:
-                response = (
-                    f"Search queued (uuid {payload.get('uuid')}). "
-                    "Try again in a few seconds with `@north korean bub cfn status <uuid>`."
-                )
-            await message.reply(truncate_message(response))
-            return True
-
-        if action == "status":
-            if len(tokens) < 2:
-                await message.reply("Usage: cfn status <uuid>")
-                return True
-            uuid = tokens[1]
-            payload = await sfbuff_integration.search_status(uuid)
-            if payload.get("_error"):
-                await message.reply(truncate_message(f"CFN status error: {payload.get('body')}"))
-                return True
-            if payload.get("finished"):
-                response = format_search_results(payload.get("result"))
-            else:
-                response = (
-                    f"Search still running (uuid {payload.get('uuid')}). "
-                    "Try again in a few seconds."
-                )
-            await message.reply(truncate_message(response))
-            return True
-
-        if action in {"sync", "rivals", "matchup", "history", "matches"}:
-            if len(tokens) < 2:
-                await message.reply(f"Usage: cfn {action} <short_id>")
-                return True
-            fighter_id = tokens[1]
-            if not is_valid_short_id(fighter_id):
-                await message.reply("CFN short_id must be at least 9 digits.")
-                return True
-
-            if action == "sync":
-                payload = await sfbuff_integration.sync(fighter_id)
-                if payload.get("_error"):
-                    await message.reply(truncate_message(f"CFN sync error: {payload.get('body')}"))
-                    return True
-                await message.reply(f"Sync started for {fighter_id} on sfbuff.site.")
-                return True
-
-            if action == "rivals":
-                payload = await sfbuff_integration.rivals(fighter_id)
-                if payload.get("_error"):
-                    await message.reply(truncate_message(f"CFN rivals error: {payload.get('body')}"))
-                    return True
-                sections = [
-                    format_rivals_section("Favorites", payload.get("favorites")),
-                    format_rivals_section("Victims", payload.get("victims")),
-                    format_rivals_section("Tormentors", payload.get("tormentors")),
-                ]
-                await message.reply(truncate_message("\n\n".join(sections)))
-                return True
-
-            if action == "matchup":
-                payload = await sfbuff_integration.matchups(fighter_id)
-                if isinstance(payload, dict) and payload.get("_error"):
-                    await message.reply(truncate_message(f"CFN matchup error: {payload.get('body')}"))
-                    return True
-                response = format_matchups(payload)
-                await message.reply(truncate_message(response))
-                return True
-
-            if action == "history":
-                payload = await sfbuff_integration.history(fighter_id)
-                if isinstance(payload, dict) and payload.get("_error"):
-                    await message.reply(truncate_message(f"CFN history error: {payload.get('body')}"))
-                    return True
-                response = format_ranked_history(payload)
-                await message.reply(truncate_message(response))
-                return True
-
-            if action == "matches":
-                payload = await sfbuff_integration.matches(fighter_id)
-                if isinstance(payload, dict) and payload.get("_error"):
-                    await message.reply(truncate_message(f"CFN matches error: {payload.get('body')}"))
-                    return True
-                response = format_matches(payload)
-                await message.reply(truncate_message(response))
-                return True
-
-    await message.reply(cfn_help_text())
-    return True
-
 
 FRAME_DATA = {}
 FRAME_STATS = {}
@@ -2636,12 +2511,6 @@ async def on_message(message):
     if client.user.mentioned_in(message) and "do the thing" in content_lower:
         await send_daily_messages(message.channel)
         return
-
-    if await handle_cfn_command(message):
-        return
-
-    
-
    
     if "tarkus" in content_lower:
         await message.reply("My brother is African American. Our love language is slurs and assaulting each other.")
